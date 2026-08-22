@@ -1,6 +1,8 @@
 import sys
 import textwrap
 
+PORT_NUMBER = 5678
+
 
 def main():
     if len(sys.argv) != 2:
@@ -24,11 +26,13 @@ def main():
               context: ./services/server
               dockerfile: Dockerfile
             container_name: server
+            ports:
+              - "{port}:{port}"
             environment:
               - PYTHONUNBUFFERED=1
               - SERVER_HOST=server
-              - SERVER_PORT=5678
-    """)
+              - SERVER_PORT={port}
+    """.format(port=PORT_NUMBER))
 
     client_template = textwrap.indent(
         textwrap.dedent("""\
@@ -42,13 +46,13 @@ def main():
           environment:
             - AGENCY_ID={id}
             - SERVER_HOST=server
-            - SERVER_PORT=5678
+            - SERVER_PORT={port}
     """),
         "  ",
     )
 
     for i in range(num_clients):
-        compose_content += client_template.format(id=i)
+        compose_content += client_template.format(id=i, port=PORT_NUMBER)
 
     with open("docker-compose.yaml", "w") as f:
         f.write(compose_content)
