@@ -3,6 +3,7 @@ package client
 import (
 	"os"
 	"net"
+	"bytes"
 	"time"
 	"bufio"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
@@ -98,7 +99,9 @@ func (client *Client) Run() error {
 			return err
 		}
 
-		if _, err := outputFile.WriteString(string(responseBuffer) + "\n"); err != nil {
+		cleanResponse := bytes.TrimRight(responseBuffer, "\x00")
+
+		if _, err := outputFile.WriteString(string(cleanResponse) + "\n"); err != nil {
 			logger.Error("write-output-file", logger.Fail, messageArgs...)
 			return err
 		}
