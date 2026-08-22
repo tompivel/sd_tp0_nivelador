@@ -43,8 +43,14 @@ def main():
           container_name: client_{id}
           depends_on:
             - server
+          volumes:
+            # "host_path:container_path"
+            - ./input:/data/input
+            - ./output:/data/output
           environment:
             - AGENCY_ID={id}
+            - INPUT_FILE=/data/input/input-{id}.csv
+            - OUTPUT_FILE=/data/output/output-{id}.csv
             - SERVER_HOST=server
             - SERVER_PORT={port}
     """),
