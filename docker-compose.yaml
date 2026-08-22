@@ -17,51 +17,13 @@ services:
     container_name: client_0
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=0
-      - SERVER_HOST=server
-      - SERVER_PORT=5678
-  client_1:
-    build:
-      context: ./services/client
-      dockerfile: Dockerfile
-    container_name: client_1
-    depends_on:
-      - server
-    environment:
-      - AGENCY_ID=1
-      - SERVER_HOST=server
-      - SERVER_PORT=5678
-  client_2:
-    build:
-      context: ./services/client
-      dockerfile: Dockerfile
-    container_name: client_2
-    depends_on:
-      - server
-    environment:
-      - AGENCY_ID=2
-      - SERVER_HOST=server
-      - SERVER_PORT=5678
-  client_3:
-    build:
-      context: ./services/client
-      dockerfile: Dockerfile
-    container_name: client_3
-    depends_on:
-      - server
-    environment:
-      - AGENCY_ID=3
-      - SERVER_HOST=server
-      - SERVER_PORT=5678
-  client_4:
-    build:
-      context: ./services/client
-      dockerfile: Dockerfile
-    container_name: client_4
-    depends_on:
-      - server
-    environment:
-      - AGENCY_ID=4
+      - INPUT_FILE=/data/input/input-0.csv
+      - OUTPUT_FILE=/data/output/output-0.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678
