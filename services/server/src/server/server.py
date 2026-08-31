@@ -1,13 +1,17 @@
 import socket
+import threading
 import logger
 from . import protocol
 from lottery.lottery import Lottery
 
 class Server:
-    def __init__(self, server_host: str, server_port: int, storage_path: str) -> None:
+    def __init__(self, server_host: str, server_port: int, storage_path: str, agency_quorum_min: int) -> None:
         self.server_host = server_host
         self.server_port = server_port
         self.lottery = Lottery(storage_path)
+        self.agency_quorum_min = agency_quorum_min
+        self.file_lock = threading.Lock()
+        self.draw_barrier = threading.Barrier(self.agency_quorum_min)
 
     def _handle_client(self, client_socket):
         action = "handle-client"
@@ -28,15 +32,23 @@ class Server:
                         bets.append(bet)
                         agency_id = bet.agency_id # Assume all bets in a connection belong to the same agency
                         
-                    self.lottery.store_bets(bets)
+                    with self.file_lock:
+                        self.lottery.store_bets(bets)
+                    
                     protocol.send_message(client_socket, protocol.OP_BATCH_ACK, b'')
                     
                 elif opcode == protocol.OP_END:
+                    try:
+                        self.draw_barrier.wait()
+                    except threading.BrokenBarrierError:
+                        pass
+                        
                     winners = []
                     # Find winners specifically for this agency
-                    for bet in self.lottery.load_bets():
-                        if bet.agency_id == agency_id and self.lottery.has_won(bet):
-                            winners.append(bet)
+                    with self.file_lock:
+                        for bet in self.lottery.load_bets():
+                            if bet.agency_id == agency_id and self.lottery.has_won(bet):
+                                winners.append(bet)
                     
                     # Serialize winners
                     winners_payload = bytearray()
@@ -50,6 +62,8 @@ class Server:
         except Exception as e:
             logger.error(action, logger.LogResult.fail, "err", str(e))
             raise e
+        finally:
+            client_socket.close()
 
     def run(self):
         action = "accept-connection"
@@ -65,4 +79,5 @@ class Server:
                     raise e
                 logger.info(action, logger.LogResult.success)
 
-                self._handle_client(client_socket)
+                client_thread = threading.Thread(target=self._handle_client, args=(client_socket,))
+                client_thread.start()
