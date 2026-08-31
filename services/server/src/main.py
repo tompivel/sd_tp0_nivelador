@@ -4,13 +4,13 @@ import sys
 import logger
 import server
 
-SERVER_HOST = os.environ["SERVER_HOST"]
-SERVER_PORT = int(os.environ["SERVER_PORT"])
-
+SERVER_HOST = os.environ.get("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.environ.get("SERVER_PORT", "12345"))
+STORAGE_PATH = os.environ.get("STORAGE_PATH", "/tmp/bets.csv")
 
 def main():
     logger.init()
-    s = server.Server(SERVER_HOST, SERVER_PORT)
+    s = server.Server(SERVER_HOST, SERVER_PORT, STORAGE_PATH)
     try:
         s.run()
     except Exception as e:

@@ -3,11 +3,10 @@ package client
 import (
 	"os"
 	"net"
-	"bytes"
 	"time"
 	"bufio"
+	"fmt"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
-	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
 const CONNECTION_ATTEMPTS_MAX = 3
@@ -20,9 +19,10 @@ const ECHO_CLIENT_MESSAGE_DELAY_MS = 1000
 type ClientConfig struct {
 	ServerHost string
 	ServerPort string
-	InputFile string
+	InputFile  string
 	OutputFile string
 	AgencyId   string
+	BatchSize  int
 }
 
 type Client struct {
@@ -75,43 +75,94 @@ func (client *Client) Run() error {
 
 	outputFile, err := os.Create(client.config.OutputFile)
 	if err != nil {
-		logger.Error("open-input-file", logger.Fail, "err", err)
+		logger.Error("open-output-file", logger.Fail, "err", err)
 		return err
 	}
 	defer outputFile.Close()
 
 	scanner := bufio.NewScanner(inputFile)
-	messageId := 0
+	
+	var batchBuffer [][]byte
+	
+	sendBatch := func() error {
+		if len(batchBuffer) == 0 {
+			return nil
+		}
+		
+		var payload []byte
+		for _, b := range batchBuffer {
+			payload = append(payload, b...)
+		}
+		
+		logger.Info(mainAction, logger.InProgress, "agency-id", client.config.AgencyId, "sending-batch", len(batchBuffer))
+		
+		if err := SendMessage(client.conn, OpBatch, payload); err != nil {
+			return err
+		}
+		
+		opcode, _, err := RecvMessage(client.conn)
+		if err != nil {
+			return err
+		}
+		if opcode != OpBatchAck {
+			return fmt.Errorf("unexpected opcode %d, expected OpBatchAck", opcode)
+		}
+		
+		batchBuffer = nil
+		return nil
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		messageArgs := []any{"agency-id", client.config.AgencyId, "message-id", messageId}
-		logger.Info(mainAction, logger.InProgress, messageArgs...)
-
-		if err := safe_socket.SendAll(client.conn, []byte(line)); err != nil {
-			logger.Error("send-message", logger.Fail, messageArgs...)
-			return err
-		}
-
-		responseBuffer, err := safe_socket.RecvAll(client.conn, ECHO_CLIENT_BUFFER_SIZE) 
+		bet, err := NewBetFromCSV(line, client.config.AgencyId)
 		if err != nil {
-			logger.Error("recv-response", logger.Fail, messageArgs...)
-			return err
+			logger.Error("parse-bet", logger.Fail, "err", err)
+			continue
 		}
-
-		cleanResponse := bytes.TrimRight(responseBuffer, "\x00")
-
-		if _, err := outputFile.WriteString(string(cleanResponse) + "\n"); err != nil {
-			logger.Error("write-output-file", logger.Fail, messageArgs...)
-			return err
+		
+		batchBuffer = append(batchBuffer, SerializeBet(bet))
+		
+		if len(batchBuffer) >= client.config.BatchSize {
+			if err := sendBatch(); err != nil {
+				return err
+			}
 		}
-
-		messageId++
 	}
 
 	if err := scanner.Err(); err != nil {
 		logger.Error("read-input-file", logger.Fail, "err", err)
 		return err
+	}
+	
+	if err := sendBatch(); err != nil {
+		return err
+	}
+	
+	// Enviar EOF
+	if err := SendMessage(client.conn, OpEnd, nil); err != nil {
+		return err
+	}
+	
+	// Recibir ganadores
+	opcode, payload, err := RecvMessage(client.conn)
+	if err != nil {
+		return err
+	}
+	if opcode != OpWinners {
+		return fmt.Errorf("unexpected opcode %d, expected OpWinners", opcode)
+	}
+	
+	offset := 0
+	for offset < len(payload) {
+		bet, read := DeserializeBet(payload[offset:])
+		if read == 0 {
+			break
+		}
+		offset += read
+		
+		if _, err := outputFile.WriteString(bet.ToCSV() + "\n"); err != nil {
+			return err
+		}
 	}
 
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)

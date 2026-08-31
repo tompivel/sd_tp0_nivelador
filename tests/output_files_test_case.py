@@ -1,10 +1,15 @@
 import csv
+import os
 
-from services.server.src_frozen.lottery import Lottery, Bet
-from .utils import docker, docker_compose
+from services.server.src_frozen.lottery import Bet, Lottery
+
 from .test_case import TestCase
+from .utils import docker, docker_compose
 
 DOCKER_COMPOSE_PATH = "docker-compose.yaml"
+
+HOST_INPUT_FILE_PATH = "./input"
+HOST_OUTPUT_FILE_PATH = "./output"
 
 
 class OutputFiles(TestCase):
@@ -12,14 +17,27 @@ class OutputFiles(TestCase):
     error_hint = "The winners list is scoped to the agency/client that loaded the record in the system"
 
     @staticmethod
+    def _guest_file_path_to_host(host_file_directory: str, guest_file_path: str) -> str:
+        filename = os.path.basename(guest_file_path)
+        return os.path.join(host_file_directory, filename)
+
+    @staticmethod
     def _verify_client_output(client_service):
         client_name = client_service["container_name"]
-        input_file = "." + docker_compose.find_environment_variable(
+        guest_input_file_path = docker_compose.find_environment_variable(
             client_service, "INPUT_FILE"
         )
-        output_file = "." + docker_compose.find_environment_variable(
+        guest_output_file_path = docker_compose.find_environment_variable(
             client_service, "OUTPUT_FILE"
         )
+
+        input_file = OutputFiles._guest_file_path_to_host(
+            HOST_INPUT_FILE_PATH, guest_input_file_path
+        )
+        output_file = OutputFiles._guest_file_path_to_host(
+            HOST_OUTPUT_FILE_PATH, guest_output_file_path
+        )
+
         agency_id = int(
             docker_compose.find_environment_variable(client_service, "AGENCY_ID")
         )

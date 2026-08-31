@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	client "github.com/7574-sistemas-distribuidos/tp-nivelador/src/client"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
@@ -34,13 +35,24 @@ func loadConfig() (client.ClientConfig, error) {
 		return client.ClientConfig{}, errors.New("SERVER_PORT environment variable is required")
 	}
 
+	batchSizeStr := os.Getenv("BATCH_SIZE")
+	batchSize := 10
+	if batchSizeStr != "" {
+		parsed, err := strconv.Atoi(batchSizeStr)
+		if err == nil && parsed > 0 {
+			batchSize = parsed
+		}
+	}
+
 	return client.ClientConfig{
 		ServerHost: serverHost,
 		ServerPort: serverPort,
-		InputFile: inputFile,
+		InputFile:  inputFile,
 		OutputFile: outputFile,
 		AgencyId:   agencyId,
+		BatchSize:  batchSize,
 	}, nil
+
 }
 
 func run() int {
