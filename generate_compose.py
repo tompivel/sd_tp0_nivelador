@@ -32,6 +32,7 @@ def main():
               - PYTHONUNBUFFERED=1
               - SERVER_HOST=server
               - SERVER_PORT={port}
+              - STORAGE_PATH=/tmp/bets.csv
     """.format(port=PORT_NUMBER))
 
     client_template = textwrap.indent(
