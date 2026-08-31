@@ -29,4 +29,18 @@ Todos los mensajes intercambiados poseen una cabecera fija de 5 bytes:
 
 ## Mecanismos para sincronizar la ejecución concurrente
 
-*(Completar con el detalle de los mecanismos utilizados en el Ejercicio 7)*
+Para manejar el procesamiento concurrente de las conexiones y el cálculo del sorteo condicionado al quórum de agencias, se optó por un enfoque de **estado compartido mediante cerrojos (Locks) y barreras**.
+
+### Decisiones de Diseño y Alternativas Consideradas
+
+* **Arquitectura de Concurrencia (Estado Compartido vs. Message Passing):**
+  * *Alternativa Considerada:* Utilizar un patrón de "Message Passing" con un hilo coordinador central. En este modelo, los hilos de los clientes (productores) colocarían las apuestas en una cola segura (ej. `queue.Queue` en Python), y un único hilo consumidor se encargaría de la escritura en el archivo y de contar si se alcanzó el quórum, respondiendo luego a cada cliente por colas privadas.
+  * *Decisión:* Se utilizó un modelo clásico de **Multithreading con estado compartido**, lanzando un hilo por conexión (`threading.Thread`).
+  * *Razón:* Si bien el modelo de colas y coordinador es excelente y libre de locks explícitos en los archivos, introducía una gran complejidad arquitectónica y requería reescribir buena parte del flujo de datos del servidor. El modelo clásico resultó mucho más simple de implementar y encajaba mejor con la estructura secuencial base, requiriendo agregar únicamente dos primitivas de sincronización.
+
+* **Protección del Almacenamiento (Race Conditions):**
+  * Puesto que la clase de dominio `Lottery` (la cual no podíamos modificar) lee y escribe sobre un mismo archivo CSV, se instanció un único `threading.Lock` global. Este Lock **envuelve las llamadas** a `store_bets` y `load_bets` por parte de los hilos clientes, garantizando acceso mutuamente exclusivo a la E/S y previniendo archivos corruptos o lecturas sucias por condiciones de carrera.
+
+* **Sincronización del Quórum (threading.Barrier):**
+  * Para satisfacer el requerimiento de esperar a que un mínimo de agencias notifiquen su fin de transmisión (`OP_END`), se utilizó la primitiva `threading.Barrier(AGENCY_QUORUM_MIN)`.
+  * *Razón:* Fue elegida sobre otras opciones (como contadores protegidos con `Condition` o `Event`) porque resuelve el caso base bloqueando a los hilos pasivamente (sin consumir CPU), y posee una enorme ventaja: **se reinicia automáticamente** tras alcanzar el quórum. Esto permitió soportar naturalmente la ejecución de múltiples rondas de sorteos continuas sin agregar lógica manual para reiniciar estados.
