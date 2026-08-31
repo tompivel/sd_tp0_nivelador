@@ -104,12 +104,14 @@ func (client *Client) Run() error {
 		if err != nil {
 			return err
 		}
-		if opcode != OpBatchAck {
+		
+		switch opcode {
+		case OpBatchAck:
+			batchBuffer = nil
+			return nil
+		default:
 			return fmt.Errorf("unexpected opcode %d, expected OpBatchAck", opcode)
 		}
-		
-		batchBuffer = nil
-		return nil
 	}
 
 	for scanner.Scan() {
@@ -148,21 +150,23 @@ func (client *Client) Run() error {
 	if err != nil {
 		return err
 	}
-	if opcode != OpWinners {
-		return fmt.Errorf("unexpected opcode %d, expected OpWinners", opcode)
-	}
 	
-	offset := 0
-	for offset < len(payload) {
-		bet, read := DeserializeBet(payload[offset:])
-		if read == 0 {
-			break
+	switch opcode {
+	case OpWinners:
+		offset := 0
+		for offset < len(payload) {
+			bet, read := DeserializeBet(payload[offset:])
+			if read == 0 {
+				break
+			}
+			offset += read
+			
+			if _, err := outputFile.WriteString(bet.ToCSV() + "\n"); err != nil {
+				return err
+			}
 		}
-		offset += read
-		
-		if _, err := outputFile.WriteString(bet.ToCSV() + "\n"); err != nil {
-			return err
-		}
+	default:
+		return fmt.Errorf("unexpected opcode %d, expected OpWinners", opcode)
 	}
 
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
