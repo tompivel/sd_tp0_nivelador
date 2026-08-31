@@ -2,6 +2,7 @@ import sys
 import textwrap
 
 PORT_NUMBER = 5678
+AGENCY_MIN = 3
 
 
 def main():
@@ -33,7 +34,8 @@ def main():
               - SERVER_HOST=server
               - SERVER_PORT={port}
               - STORAGE_PATH=/tmp/bets.csv
-    """.format(port=PORT_NUMBER))
+              - AGENCY_QUORUM_MIN={agency_mim_quorum}
+    """.format(port=PORT_NUMBER, agency_mim_quorum=AGENCY_MIN))
 
     client_template = textwrap.indent(
         textwrap.dedent("""\
