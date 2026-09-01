@@ -15,10 +15,6 @@ import (
 const CONNECTION_ATTEMPTS_MAX = 10
 const CONNECTION_ATTEMPS_DELAY_MS = 1000
 
-const ECHO_CLIENT_BUFFER_SIZE = 512
-const ECHO_CLIENT_MESSAGE_AMOUNT = 3
-const ECHO_CLIENT_MESSAGE_DELAY_MS = 1000
-
 type ClientConfig struct {
 	ServerHost string
 	ServerPort string
@@ -66,28 +62,52 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run() (err error) {
-	const mainAction = "test-echo-server"
+	const mainAction = "run_client"
 	
 	var shuttingDown atomic.Bool
+	done := make(chan struct{})
 	
 	// Set up signal handling
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
 	go func() {
-		<-sigs
-		logger.Info("shutdown", logger.InProgress, "Received SIGTERM, closing connection to abort pending operations")
-		shuttingDown.Store(true)
-		client.conn.Close()
+		select {
+		case <-sigs:
+			logger.Info("shutdown", logger.InProgress, "Received SIGTERM, closing connection to abort pending operations")
+			shuttingDown.Store(true)
+			client.conn.Close()
+		case <-done:
+			// Normal execution finished, exit goroutine cleanly
+		}
 	}()
 	
 	defer func() {
+		close(done)
 		if shuttingDown.Load() {
-			err = nil // Suppress the error to exit with code 0
+			err = nil // Graceful exit if SIGTERM signaled
 		}
 	}()
 	
 	defer client.conn.Close()
 
+	if err := client.processBetsFile(mainAction); err != nil {
+		return err
+	}
+	
+	// EOF
+	if err := SendMessage(client.conn, OpEnd, nil); err != nil {
+		return err
+	}
+	
+	if err := client.receiveAndSaveWinners(); err != nil {
+		return err
+	}
+
+	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
+	return nil
+}
+
+func (client *Client) processBetsFile(action string) error {
 	inputFile, err := os.Open(client.config.InputFile)
 	if err != nil {
 		logger.Error("open-input-file", logger.Fail, "err", err)
@@ -95,47 +115,9 @@ func (client *Client) Run() (err error) {
 	}
 	defer inputFile.Close()
 
-	outputFile, err := os.Create(client.config.OutputFile)
-	if err != nil {
-		logger.Error("open-output-file", logger.Fail, "err", err)
-		return err
-	}
-	defer outputFile.Close()
-
 	scanner := bufio.NewScanner(inputFile)
-	
 	var batchBuffer [][]byte
 	
-	sendBatch := func() error {
-		if len(batchBuffer) == 0 {
-			return nil
-		}
-		
-		var payload []byte
-		for _, b := range batchBuffer {
-			payload = append(payload, b...)
-		}
-		
-		logger.Info(mainAction, logger.InProgress, "agency-id", client.config.AgencyId, "sending-batch", len(batchBuffer))
-		
-		if err := SendMessage(client.conn, OpBatch, payload); err != nil {
-			return err
-		}
-		
-		opcode, _, err := RecvMessage(client.conn)
-		if err != nil {
-			return err
-		}
-		
-		switch opcode {
-		case OpBatchAck:
-			batchBuffer = nil
-			return nil
-		default:
-			return fmt.Errorf("unexpected opcode %d, expected OpBatchAck", opcode)
-		}
-	}
-
 	for scanner.Scan() {
 		line := scanner.Text()
 		bet, err := NewBetFromCSV(line, client.config.AgencyId)
@@ -147,7 +129,7 @@ func (client *Client) Run() (err error) {
 		batchBuffer = append(batchBuffer, SerializeBet(bet))
 		
 		if len(batchBuffer) >= client.config.BatchSize {
-			if err := sendBatch(); err != nil {
+			if err := client.flushBatch(&batchBuffer, action); err != nil {
 				return err
 			}
 		}
@@ -158,16 +140,47 @@ func (client *Client) Run() (err error) {
 		return err
 	}
 	
-	if err := sendBatch(); err != nil {
+	return client.flushBatch(&batchBuffer, action)
+}
+
+func (client *Client) flushBatch(batchBuffer *[][]byte, action string) error {
+	if len(*batchBuffer) == 0 {
+		return nil
+	}
+	
+	var payload []byte
+	for _, b := range *batchBuffer {
+		payload = append(payload, b...)
+	}
+	
+	logger.Info(action, logger.InProgress, "agency-id", client.config.AgencyId, "sending-batch", len(*batchBuffer))
+	
+	if err := SendMessage(client.conn, OpBatch, payload); err != nil {
 		return err
 	}
 	
-	// Enviar EOF
-	if err := SendMessage(client.conn, OpEnd, nil); err != nil {
+	opcode, _, err := RecvMessage(client.conn)
+	if err != nil {
 		return err
 	}
 	
-	// Recibir ganadores
+	switch opcode {
+	case OpBatchAck:
+		*batchBuffer = nil
+		return nil
+	default:
+		return fmt.Errorf("unexpected opcode %d, expected OpBatchAck", opcode)
+	}
+}
+
+func (client *Client) receiveAndSaveWinners() error {
+	outputFile, err := os.Create(client.config.OutputFile)
+	if err != nil {
+		logger.Error("open-output-file", logger.Fail, "err", err)
+		return err
+	}
+	defer outputFile.Close()
+
 	opcode, payload, err := RecvMessage(client.conn)
 	if err != nil {
 		return err
@@ -190,7 +203,5 @@ func (client *Client) Run() (err error) {
 	default:
 		return fmt.Errorf("unexpected opcode %d, expected OpWinners", opcode)
 	}
-
-	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
 	return nil
 }

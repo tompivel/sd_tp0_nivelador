@@ -15,6 +15,7 @@ class Server:
         self.lottery = Lottery(storage_path)
         self.agency_quorum_min = agency_quorum_min
         self.file_lock = threading.Lock()
+        self.socket_lock = threading.Lock()
         self.draw_barrier = threading.Barrier(self.agency_quorum_min)
         self.active_sockets = []
         
@@ -25,7 +26,8 @@ class Server:
         raise GracefulExit()
 
     def _handle_client(self, client_socket):
-        self.active_sockets.append(client_socket)
+        with self.socket_lock:
+            self.active_sockets.append(client_socket)
         action = "handle-client"
         try:
             logger.info(action, logger.LogResult.in_progress)
@@ -37,12 +39,9 @@ class Server:
                     break
                     
                 if opcode == protocol.OP_BATCH:
-                    bets = []
-                    offset = 0
-                    while offset < len(payload):
-                        bet, offset = protocol.deserialize_bet(payload, offset)
-                        bets.append(bet)
-                        agency_id = bet.agency_id # Assume all bets in a connection belong to the same agency
+                    bets = protocol.deserialize_batch(payload)
+                    if bets:
+                        agency_id = bets[0].agency_id # Assume all bets in a connection belong to the same agency
                         
                     with self.file_lock:
                         self.lottery.store_bets(bets)
@@ -63,11 +62,9 @@ class Server:
                                 winners.append(bet)
                     
                     # Serialize winners
-                    winners_payload = bytearray()
-                    for winner in winners:
-                        winners_payload.extend(protocol.serialize_bet(winner))
+                    winners_payload = protocol.serialize_winners(winners)
                         
-                    protocol.send_message(client_socket, protocol.OP_WINNERS, bytes(winners_payload))
+                    protocol.send_message(client_socket, protocol.OP_WINNERS, winners_payload)
                     break
                     
             logger.info(action, logger.LogResult.success)
@@ -75,8 +72,9 @@ class Server:
             logger.error(action, logger.LogResult.fail, "err", str(e))
         finally:
             client_socket.close()
-            if client_socket in self.active_sockets:
-                self.active_sockets.remove(client_socket)
+            with self.socket_lock:
+                if client_socket in self.active_sockets:
+                    self.active_sockets.remove(client_socket)
 
     def run(self):
         action = "accept-connection"
@@ -100,7 +98,9 @@ class Server:
                 self.draw_barrier.abort()
                 
                 # Shutdown active sockets to unblock any pending recv() in client threads
-                for sock in self.active_sockets:
+                with self.socket_lock:
+                    sockets_to_close = list(self.active_sockets)
+                for sock in sockets_to_close:
                     try:
                         sock.shutdown(socket.SHUT_RDWR)
                     except OSError:
