@@ -17,6 +17,4 @@ def send_all(sock: socket.socket, data: bytes):
     total_sent = 0
     while total_sent < len(data):
         sent = sock.send(data[total_sent:])
-        if sent == 0:
-            raise ConnectionError("socket connection broken")
         total_sent += sent
