@@ -88,19 +88,15 @@ func DeserializeBet(data []byte) (*Bet, int) {
 }
 
 func SendMessage(conn io.Writer, opcode byte, payload []byte) error {
-	header := make([]byte, 5)
-	header[0] = opcode
-	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+	msg := make([]byte, 5+len(payload))
+	msg[0] = opcode
+	binary.BigEndian.PutUint32(msg[1:5], uint32(len(payload)))
 	
-	if err := safe_socket.SendAll(conn, header); err != nil {
-		return err
-	}
 	if len(payload) > 0 {
-		if err := safe_socket.SendAll(conn, payload); err != nil {
-			return err
-		}
+		copy(msg[5:], payload)
 	}
-	return nil
+	
+	return safe_socket.SendAll(conn, msg)
 }
 
 func RecvMessage(conn io.Reader) (byte, []byte, error) {

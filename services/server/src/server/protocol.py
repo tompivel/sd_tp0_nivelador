@@ -12,9 +12,8 @@ def send_message(socket, opcode: int, payload: bytes):
     header[0] = opcode
     header[1:] = len(payload).to_bytes(4, byteorder='big')
     
-    safe_socket.send_all(socket, header)
-    if payload:
-        safe_socket.send_all(socket, payload)
+    msg = header + payload
+    safe_socket.send_all(socket, msg)
 
 def recv_message(socket) -> Tuple[int, bytes]:
     header = safe_socket.recv_all(socket, 5)
