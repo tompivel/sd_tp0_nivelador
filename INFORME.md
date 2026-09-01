@@ -1,9 +1,83 @@
 # Detalle de Solución
 ## Arquitectura del Servidor
+
+```mermaid
+graph TD
+    subgraph Server Node
+        direction TB
+        Main[Main Thread: Accept]
+        
+        subgraph Client Threads
+            T1[Thread 1]
+            T2[Thread 2]
+            TN[Thread N]
+        end
+        
+        Main -->|Spawn| T1
+        Main -->|Spawn| T2
+        Main -->|Spawn| TN
+        
+        Lock((File Lock))
+        Barrier((Draw Barrier))
+        Storage[(Lottery CSV Storage)]
+        
+        T1 --> Lock
+        T2 --> Lock
+        TN --> Lock
+        
+        Lock --> Storage
+        
+        T1 --> Barrier
+        T2 --> Barrier
+        TN --> Barrier
+    end
+```
+
 ## Arquitectura del Cliente
 
+```mermaid
+graph TD
+    subgraph Client Node
+        direction TB
+        Main[Main Goroutine]
+        Signal[Signal Handler Goroutine]
+        
+        Input[(input.csv)]
+        Output[(output.csv)]
+        Socket((TCP Socket))
+        
+        Input --> |Read & Parse| Main
+        Main --> |Batch (OP_BATCH)| Socket
+        Socket --> |ACK (OP_BATCH_ACK)| Main
+        Main --> |EOF (OP_END)| Socket
+        Socket --> |Winners (OP_WINNERS)| Main
+        Main --> |Write| Output
+        
+        OS((SIGTERM)) --> |OS Signal| Signal
+        Signal -.-> |Close| Socket
+    end
+```
 
 ## Protocolo de Comunicación
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant S as Servidor
+    
+    C->>S: Establece conexión TCP
+    loop Mientras haya apuestas
+        C->>S: 0x01 (OP_BATCH) + Payload
+        Note right of S: Adquiere File Lock<br/>Almacena apuestas<br/>Libera File Lock
+        S-->>C: 0x02 (OP_BATCH_ACK)
+    end
+    C->>S: 0x03 (OP_END)
+    Note right of S: Espera en Barrera (Quórum)
+    Note right of S: Calcula ganadores
+    S-->>C: 0x04 (OP_WINNERS) + Payload
+    Note left of C: Guarda resultados
+    C-xS: Cierra conexión
+```
 
 Se implementó un protocolo binario basado en la arquitectura **TLV (Type-Length-Value)** sobre TCP, priorizando la eficiencia, robustez y separación de responsabilidades entre la capa de red y el dominio (lógica de negocio).
 
