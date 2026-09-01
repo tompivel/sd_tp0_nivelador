@@ -47,10 +47,10 @@ graph TD
         Socket((TCP Socket))
         
         Input --> |Read & Parse| Main
-        Main --> |Batch (OP_BATCH)| Socket
-        Socket --> |ACK (OP_BATCH_ACK)| Main
-        Main --> |EOF (OP_END)| Socket
-        Socket --> |Winners (OP_WINNERS)| Main
+        Main --> |Batch OP_BATCH| Socket
+        Socket --> |ACK OP_BATCH_ACK| Main
+        Main --> |EOF OP_END| Socket
+        Socket --> |Winners OP_WINNERS| Main
         Main --> |Write| Output
         
         OS((SIGTERM)) --> |OS Signal| Signal
