@@ -4,10 +4,14 @@ services:
       context: ./services/server
       dockerfile: Dockerfile
     container_name: server
+    ports:
+      - "5678:5678"
     environment:
       - PYTHONUNBUFFERED=1
       - SERVER_HOST=server
       - SERVER_PORT=5678
+      - STORAGE_PATH=/tmp/bets.csv
+      - AGENCY_QUORUM_MIN=5
   client_0:
     build:
       context: ./services/client
@@ -15,8 +19,15 @@ services:
     container_name: client_0
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=0
+      - BATCH_SIZE=40
+      - INPUT_FILE=/data/input/input-0.csv
+      - OUTPUT_FILE=/data/output/output-0.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678
   client_1:
@@ -26,8 +37,15 @@ services:
     container_name: client_1
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=1
+      - BATCH_SIZE=40
+      - INPUT_FILE=/data/input/input-1.csv
+      - OUTPUT_FILE=/data/output/output-1.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678
   client_2:
@@ -37,8 +55,15 @@ services:
     container_name: client_2
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=2
+      - BATCH_SIZE=40
+      - INPUT_FILE=/data/input/input-2.csv
+      - OUTPUT_FILE=/data/output/output-2.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678
   client_3:
@@ -48,8 +73,15 @@ services:
     container_name: client_3
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=3
+      - BATCH_SIZE=40
+      - INPUT_FILE=/data/input/input-3.csv
+      - OUTPUT_FILE=/data/output/output-3.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678
   client_4:
@@ -59,7 +91,14 @@ services:
     container_name: client_4
     depends_on:
       - server
+    volumes:
+      # "host_path:container_path"
+      - ./input:/data/input
+      - ./output:/data/output
     environment:
       - AGENCY_ID=4
+      - BATCH_SIZE=40
+      - INPUT_FILE=/data/input/input-4.csv
+      - OUTPUT_FILE=/data/output/output-4.csv
       - SERVER_HOST=server
       - SERVER_PORT=5678

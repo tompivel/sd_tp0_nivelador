@@ -1,52 +1,128 @@
+import signal
 import socket
-import logger
-import safe_socket
+import threading
 
-_ECHO_SERVER_MESSAGE_SIZE = 1024
+import logger
+from lottery.lottery import Lottery
+
+from . import protocol
+
+
+class GracefulExit(Exception):
+    pass
 
 
 class Server:
-    def __init__(self, server_host: str, server_port: int) -> None:
+    def __init__(
+        self,
+        server_host: str,
+        server_port: int,
+        storage_path: str,
+        agency_quorum_min: int,
+    ) -> None:
         self.server_host = server_host
         self.server_port = server_port
+        self.lottery = Lottery(storage_path)
+        self.agency_quorum_min = agency_quorum_min
+        self.file_lock = threading.Lock()
+        self.socket_lock = threading.Lock()
+        self.draw_barrier = threading.Barrier(self.agency_quorum_min)
+        self.active_sockets = []
+
+        # Register the signal handler
+        signal.signal(signal.SIGTERM, self.handle_sigterm)
+
+    def handle_sigterm(self, signum, frame):
+        raise GracefulExit()
 
     def _handle_client(self, client_socket):
+        with self.socket_lock:
+            self.active_sockets.append(client_socket)
         action = "handle-client"
-        message_amount = 0
         try:
             logger.info(action, logger.LogResult.in_progress)
+            agency_id = None
+
             while True:
-                client_message = safe_socket.recv_all(
-                    client_socket, _ECHO_SERVER_MESSAGE_SIZE
-                )
-                if not client_message:
-                    logger.info(
-                        action,
-                        logger.LogResult.success,
-                        "messages-amount",
-                        message_amount,
+                opcode, payload = protocol.recv_message(client_socket)
+                if not opcode:
+                    break
+
+                if opcode == protocol.OP_BATCH:
+                    bets = protocol.deserialize_batch(payload)
+                    if bets:
+                        agency_id = bets[0].agency_id
+
+                    with self.file_lock:
+                        self.lottery.store_bets(bets)
+
+                    protocol.send_message(client_socket, protocol.OP_BATCH_ACK, b"")
+
+                elif opcode == protocol.OP_END:
+                    try:
+                        self.draw_barrier.wait()
+                    except threading.BrokenBarrierError:
+                        pass
+
+                    winners = []
+                    # Find winners specifically for this agency
+                    with self.file_lock:
+                        for bet in self.lottery.load_bets():
+                            if bet.agency_id == agency_id and self.lottery.has_won(bet):
+                                winners.append(bet)
+
+                    # Serialize winners
+                    winners_payload = protocol.serialize_winners(winners)
+
+                    protocol.send_message(
+                        client_socket, protocol.OP_WINNERS, winners_payload
                     )
-                    return
-                message_amount += 1
-                safe_socket.send_all(client_socket, client_message)
+                    break
+
+            logger.info(action, logger.LogResult.success)
         except Exception as e:
-            logger.error(
-                action, logger.LogResult.fail, "messages-amount", message_amount
-            )
-            raise e
+            logger.error(action, logger.LogResult.fail, "err", str(e))
+        finally:
+            client_socket.close()
+            with self.socket_lock:
+                if client_socket in self.active_sockets:
+                    self.active_sockets.remove(client_socket)
 
     def run(self):
         action = "accept-connection"
+        threads = []
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind((self.server_host, self.server_port))
             server_socket.listen()
-            while True:
-                try:
+            try:
+                while True:
                     logger.info(action, logger.LogResult.in_progress)
                     client_socket, _ = server_socket.accept()
-                except Exception as e:
-                    logger.error(action, logger.LogResult.fail)
-                    raise e
-                logger.info(action, logger.LogResult.success)
+                    logger.info(action, logger.LogResult.success)
 
-                self._handle_client(client_socket)
+                    client_thread = threading.Thread(
+                        target=self._handle_client, args=(client_socket,)
+                    )
+                    client_thread.start()
+                    threads.append(client_thread)
+
+            except GracefulExit:
+                logger.info(
+                    "server",
+                    logger.LogResult.success,
+                    "SIGTERM received. Aborting barrier and closing sockets.",
+                )
+                self.draw_barrier.abort()
+
+                # Shutdown active sockets to unblock any pending recv() in client threads
+                with self.socket_lock:
+                    sockets_to_close = list(self.active_sockets)
+                for sock in sockets_to_close:
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
+        for t in threads:
+            t.join()

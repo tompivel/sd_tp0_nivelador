@@ -1,6 +1,9 @@
 import sys
 import textwrap
 
+PORT_NUMBER = 5678
+BATCH_SIZE = 40
+
 
 def main():
     if len(sys.argv) != 2:
@@ -24,11 +27,15 @@ def main():
               context: ./services/server
               dockerfile: Dockerfile
             container_name: server
+            ports:
+              - "{port}:{port}"
             environment:
               - PYTHONUNBUFFERED=1
               - SERVER_HOST=server
-              - SERVER_PORT=5678
-    """)
+              - SERVER_PORT={port}
+              - STORAGE_PATH=/tmp/bets.csv
+              - AGENCY_QUORUM_MIN={agency_mim_quorum}
+    """.format(port=PORT_NUMBER, agency_mim_quorum=num_clients))
 
     client_template = textwrap.indent(
         textwrap.dedent("""\
@@ -39,16 +46,25 @@ def main():
           container_name: client_{id}
           depends_on:
             - server
+          volumes:
+            # "host_path:container_path"
+            - ./input:/data/input
+            - ./output:/data/output
           environment:
             - AGENCY_ID={id}
+            - BATCH_SIZE={batch_size}
+            - INPUT_FILE=/data/input/input-{id}.csv
+            - OUTPUT_FILE=/data/output/output-{id}.csv
             - SERVER_HOST=server
-            - SERVER_PORT=5678
+            - SERVER_PORT={port}
     """),
         "  ",
     )
 
     for i in range(num_clients):
-        compose_content += client_template.format(id=i)
+        compose_content += client_template.format(
+            id=i, port=PORT_NUMBER, batch_size=BATCH_SIZE
+        )
 
     with open("docker-compose.yaml", "w") as f:
         f.write(compose_content)

@@ -1,9 +1,11 @@
 import os
 import csv
+import os
 
-from services.server.src_frozen.lottery import Lottery, Bet
-from .utils import docker, docker_compose
+from services.server.src_frozen.lottery import Bet, Lottery
+
 from .test_case import TestCase
+from .utils import docker, docker_compose
 
 DOCKER_COMPOSE_PATH = "docker-compose.yaml"
 
