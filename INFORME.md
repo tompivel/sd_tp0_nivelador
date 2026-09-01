@@ -136,3 +136,28 @@ Para garantizar que tanto el cliente como el servidor liberen sus recursos corre
 * **Cierre de socket para interrumpir I/O:** Al recibir la señal, el cliente cierra inmediatamente su conexión (`client.conn.Close()`). Esto provoca que cualquier llamada bloqueante de lectura o escritura en red retorne un error y se destrabe, permitiendo salir del bucle principal al instante.
 * **Supresión controlada de Errores (Atomic Flag & Defer):** El cierre abrupto de la conexión provoca que el flujo de ejecución retorne un error de red. Para que el cliente termine de forma exitosa (código de salida `0`), la goroutine activa un flag atómico `shuttingDown`. Una función `defer` atrapa el retorno de la función `Run()` y, si el flag está activo, suprime el error reemplazándolo por `nil`.
 * **Prevención de fugas de Goroutines (Done channel):** Para asegurar que la goroutine que escucha las señales no quede en memoria indefinidamente cuando la ejecución del cliente termina de manera natural, se introdujo un canal `done`. Mediante un `select`, la goroutine puede terminar limpiamente sin importar qué evento ocurra primero.
+
+## Ejecución con Docker
+
+Para facilitar el despliegue del sistema y la creación dinámica de agencias, se provee el script `generate_compose.py`. Este script genera automáticamente un archivo `docker-compose.yaml` configurado con la cantidad de clientes deseada.
+
+### Generar la infraestructura y levantar el sistema
+
+1. Ejecutar el script indicando la cantidad de clientes (agencias) a simular. Por ejemplo, para 5 agencias:
+   ```bash
+   python generate_compose.py 5
+   ```
+2. Iniciar los contenedores con Docker Compose:
+   ```bash
+   make up
+   ```
+   Esto levantará un contenedor para el servidor y un contenedor para cada cliente configurado, asignándole el quórum correspondiente al servidor (`AGENCY_QUORUM_MIN` igual al número de clientes en el archivo generado).
+
+### Pruebas de red y diagnóstico
+
+Si se desea realizar un diagnóstico rápido de la red para verificar que el servidor es alcanzable desde la red interna de Docker (`sd_tp0_nivelador_default`), se provee el script `test_server_nc.sh`.
+
+Este script levanta un contenedor efímero utilizando `alpine` e intenta establecer una conexión TCP directa contra el puerto `5678` del servidor utilizando Netcat (`nc`).
+```bash
+./test_server_nc.sh
+```
