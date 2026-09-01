@@ -2,7 +2,6 @@ import sys
 import textwrap
 
 PORT_NUMBER = 5678
-AGENCY_MIN = 3
 BATCH_SIZE = 40
 
 
@@ -36,7 +35,7 @@ def main():
               - SERVER_PORT={port}
               - STORAGE_PATH=/tmp/bets.csv
               - AGENCY_QUORUM_MIN={agency_mim_quorum}
-    """.format(port=PORT_NUMBER, agency_mim_quorum=AGENCY_MIN))
+    """.format(port=PORT_NUMBER, agency_mim_quorum=num_clients))
 
     client_template = textwrap.indent(
         textwrap.dedent("""\
