@@ -2,6 +2,9 @@ package client
 
 import (
 	"os"
+	"os/signal"
+	"syscall"
+	"sync/atomic"
 	"net"
 	"time"
 	"bufio"
@@ -62,8 +65,27 @@ func connectToServer(host, port string) (net.Conn, error) {
 	return conn, err
 }
 
-func (client *Client) Run() error {
+func (client *Client) Run() (err error) {
 	const mainAction = "test-echo-server"
+	
+	var shuttingDown atomic.Bool
+	
+	// Set up signal handling
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		logger.Info("shutdown", logger.InProgress, "Received SIGTERM, closing connection to abort pending operations")
+		shuttingDown.Store(true)
+		client.conn.Close()
+	}()
+	
+	defer func() {
+		if shuttingDown.Load() {
+			err = nil // Suppress the error to exit with code 0
+		}
+	}()
+	
 	defer client.conn.Close()
 
 	inputFile, err := os.Open(client.config.InputFile)
