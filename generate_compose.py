@@ -3,6 +3,7 @@ import textwrap
 
 PORT_NUMBER = 5678
 AGENCY_MIN = 3
+BATCH_SIZE = 40
 
 
 def main():
@@ -52,6 +53,7 @@ def main():
             - ./output:/data/output
           environment:
             - AGENCY_ID={id}
+            - BATCH_SIZE={batch_size}
             - INPUT_FILE=/data/input/input-{id}.csv
             - OUTPUT_FILE=/data/output/output-{id}.csv
             - SERVER_HOST=server
@@ -61,7 +63,9 @@ def main():
     )
 
     for i in range(num_clients):
-        compose_content += client_template.format(id=i, port=PORT_NUMBER)
+        compose_content += client_template.format(
+            id=i, port=PORT_NUMBER, batch_size=BATCH_SIZE
+        )
 
     with open("docker-compose.yaml", "w") as f:
         f.write(compose_content)

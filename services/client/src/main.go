@@ -36,7 +36,7 @@ func loadConfig() (client.ClientConfig, error) {
 	}
 
 	batchSizeStr := os.Getenv("BATCH_SIZE")
-	batchSize := 10
+	batchSize := 40 
 	if batchSizeStr != "" {
 		parsed, err := strconv.Atoi(batchSizeStr)
 		if err == nil && parsed > 0 {
