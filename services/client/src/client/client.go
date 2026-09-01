@@ -61,14 +61,10 @@ func connectToServer(host, port string) (net.Conn, error) {
 	return conn, err
 }
 
-func (client *Client) Run() (err error) {
-	const mainAction = "run_client"
-	
-	var shuttingDown atomic.Bool
+func (client *Client) setupSignalHandler() (chan struct{}, *atomic.Bool) {
+	shuttingDown := &atomic.Bool{}
 	done := make(chan struct{})
-	defer close(done)
 	
-	// Set up signal handling
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
 	go func() {
@@ -81,6 +77,15 @@ func (client *Client) Run() (err error) {
 			return
 		}
 	}()
+	
+	return done, shuttingDown
+}
+
+func (client *Client) Run() (err error) {
+	const mainAction = "run_client"
+	
+	done, shuttingDown := client.setupSignalHandler()
+	defer close(done)
 	
 	defer func() {
 		if shuttingDown.Load() {
@@ -188,14 +193,8 @@ func (client *Client) receiveAndSaveWinners() error {
 	
 	switch opcode {
 	case OpWinners:
-		offset := 0
-		for offset < len(payload) {
-			bet, read := DeserializeBet(payload[offset:])
-			if read == 0 {
-				break
-			}
-			offset += read
-			
+		bets := DeserializeBatch(payload)
+		for _, bet := range bets {
 			if _, err := outputFile.WriteString(bet.ToCSV() + "\n"); err != nil {
 				return err
 			}

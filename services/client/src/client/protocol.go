@@ -117,6 +117,21 @@ func DeserializeBet(data []byte) (*Bet, int) {
 	}, offset
 }
 
+// DeserializeBatch parses an array of bets from a single payload block.
+func DeserializeBatch(payload []byte) []*Bet {
+	var bets []*Bet
+	offset := 0
+	for offset < len(payload) {
+		bet, read := DeserializeBet(payload[offset:])
+		if read == 0 {
+			break
+		}
+		offset += read
+		bets = append(bets, bet)
+	}
+	return bets
+}
+
 func SendMessage(conn io.Writer, opcode byte, payload []byte) error {
 	msg := make([]byte, HEADER_SIZE +len(payload))
 	msg[0] = opcode
