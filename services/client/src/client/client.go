@@ -66,6 +66,7 @@ func (client *Client) Run() (err error) {
 	
 	var shuttingDown atomic.Bool
 	done := make(chan struct{})
+	defer close(done)
 	
 	// Set up signal handling
 	sigs := make(chan os.Signal, 1)
@@ -77,12 +78,11 @@ func (client *Client) Run() (err error) {
 			shuttingDown.Store(true)
 			client.conn.Close()
 		case <-done:
-			// Normal execution finished, exit goroutine cleanly
+			return
 		}
 	}()
 	
 	defer func() {
-		close(done)
 		if shuttingDown.Load() {
 			err = nil // Graceful exit if SIGTERM signaled
 		}
