@@ -2,7 +2,7 @@ import signal
 import socket
 import threading
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, List, Optional
 
 import logger
 import utils.rwlock
@@ -43,6 +43,37 @@ class Server:
     def handle_sigterm(self, signum: int, frame: Any) -> None:
         raise GracefulExit()
 
+    def _handle_batch(self, client_socket: socket.socket, payload: bytes, agency_id: Optional[int]) -> Optional[int]:
+        bets = protocol.deserialize_batch(payload)
+        if bets and agency_id is None:
+            agency_id = bets[0].agency_id
+
+        with self.rwlock.write_lock():
+            self.lottery.store_bets(bets)
+
+        protocol.send_message(client_socket, protocol.OpCode.BATCH_ACK, b"")
+        return agency_id
+
+    def _handle_end(self, client_socket: socket.socket, agency_id: Optional[int]) -> None:
+        try:
+            self.draw_barrier.wait()
+        except threading.BrokenBarrierError:
+            pass
+
+        winners = []
+        # Find winners specifically for this agency
+        with self.rwlock.read_lock():
+            for bet in self.lottery.load_bets():
+                if bet.agency_id == agency_id and self.lottery.has_won(bet):
+                    winners.append(bet)
+
+        # Serialize winners
+        winners_payload = protocol.serialize_winners(winners)
+
+        protocol.send_message(
+            client_socket, protocol.OpCode.WINNERS, winners_payload
+        )
+
     def _handle_client(self, client_socket: socket.socket) -> None:
         with self.socket_lock:
             self.active_sockets.append(client_socket)
@@ -57,34 +88,9 @@ class Server:
                     break
 
                 if opcode == protocol.OpCode.BATCH:
-                    bets = protocol.deserialize_batch(payload)
-                    if bets:
-                        agency_id = bets[0].agency_id
-
-                    with self.rwlock.write_lock():
-                        self.lottery.store_bets(bets)
-
-                    protocol.send_message(client_socket, protocol.OpCode.BATCH_ACK, b"")
-
+                    agency_id = self._handle_batch(client_socket, payload, agency_id)
                 elif opcode == protocol.OpCode.END:
-                    try:
-                        self.draw_barrier.wait()
-                    except threading.BrokenBarrierError:
-                        pass
-
-                    winners = []
-                    # Find winners specifically for this agency
-                    with self.rwlock.read_lock():
-                        for bet in self.lottery.load_bets():
-                            if bet.agency_id == agency_id and self.lottery.has_won(bet):
-                                winners.append(bet)
-
-                    # Serialize winners
-                    winners_payload = protocol.serialize_winners(winners)
-
-                    protocol.send_message(
-                        client_socket, protocol.OpCode.WINNERS, winners_payload
-                    )
+                    self._handle_end(client_socket, agency_id)
                     break
 
             logger.info(action, logger.LogResult.success)

@@ -5,11 +5,13 @@ from typing import List, Optional, Tuple
 import safe_socket
 from lottery.bet import Bet
 
+
 class OpCode(IntEnum):
     BATCH = 0x01
     BATCH_ACK = 0x02
     END = 0x03
     WINNERS = 0x04
+
 
 # Protocol Parameter Sizes
 HEADER_SIZE = 5
@@ -38,11 +40,11 @@ def recv_message(sock: socket.socket) -> Tuple[Optional[OpCode], bytes]:
         return None, b""
 
     opcode = OpCode(header[0])
-    length = int.from_bytes(header[OP_CODE_SIZE:HEADER_SIZE], byteorder="big")
+    payload_length = int.from_bytes(header[OP_CODE_SIZE:HEADER_SIZE], byteorder="big")
 
     payload = b""
-    if length > 0:
-        payload = safe_socket.recv_all(sock, length)
+    if payload_length > 0:
+        payload = safe_socket.recv_all(sock, payload_length)
 
     return opcode, payload
 
