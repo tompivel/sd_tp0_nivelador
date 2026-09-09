@@ -11,7 +11,13 @@ AGENCY_QUORUM_MIN = int(os.environ.get("AGENCY_QUORUM_MIN", "3"))
 
 def main():
     logger.init()
-    s = server.Server(SERVER_HOST, SERVER_PORT, STORAGE_PATH, AGENCY_QUORUM_MIN)
+    config = server.ServerConfig(
+        server_host=SERVER_HOST,
+        server_port=SERVER_PORT,
+        storage_path=STORAGE_PATH,
+        agency_quorum_min=AGENCY_QUORUM_MIN
+    )
+    s = server.Server(config)
     try:
         s.run()
     except Exception as e:

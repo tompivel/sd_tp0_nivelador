@@ -1,12 +1,21 @@
 import signal
 import socket
 import threading
+from dataclasses import dataclass
 
 import logger
 import utils.rwlock
 from lottery.lottery import Lottery
 
 from . import protocol
+
+
+@dataclass
+class ServerConfig:
+    server_host: str
+    server_port: int
+    storage_path: str
+    agency_quorum_min: int
 
 
 class GracefulExit(Exception):
@@ -16,15 +25,12 @@ class GracefulExit(Exception):
 class Server:
     def __init__(
         self,
-        server_host: str,
-        server_port: int,
-        storage_path: str,
-        agency_quorum_min: int,
+        config: ServerConfig,
     ) -> None:
-        self.server_host = server_host
-        self.server_port = server_port
-        self.lottery = Lottery(storage_path)
-        self.agency_quorum_min = agency_quorum_min
+        self.server_host = config.server_host
+        self.server_port = config.server_port
+        self.lottery = Lottery(config.storage_path)
+        self.agency_quorum_min = config.agency_quorum_min
         self.rwlock = utils.rwlock.RWLock()
         self.socket_lock = threading.Lock()
         self.draw_barrier = threading.Barrier(self.agency_quorum_min)
