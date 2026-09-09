@@ -1,0 +1,135 @@
+import socket
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import List, Optional, Tuple
+
+import safe_socket
+from lottery.bet import Bet
+
+
+class OpCode(IntEnum):
+    BATCH = 0x01
+    BATCH_ACK = 0x02
+    END = 0x03
+    WINNERS = 0x04
+
+
+# Protocol Parameter Sizes
+HEADER_SIZE = 5
+OP_CODE_SIZE = 1
+PAYLOAD_SIZE = 4
+AGENCY_SIZE = 4
+NAME_LEN_SIZE = 1
+LAST_LEN_SIZE = 1
+USER_ID_SIZE = 4
+BIRTH_DATE_SIZE = 10
+CODE_SIZE = 4
+
+
+def send_message(sock: socket.socket, opcode: OpCode, payload: bytes) -> None:
+    header = bytearray(HEADER_SIZE)
+    header[0] = opcode
+    header[OP_CODE_SIZE:] = len(payload).to_bytes(PAYLOAD_SIZE, byteorder="big")
+
+    msg = header + payload
+    safe_socket.send_all(sock, msg)
+
+
+def recv_message(sock: socket.socket) -> Tuple[Optional[OpCode], bytes]:
+    header = safe_socket.recv_all(sock, HEADER_SIZE)
+    if not header:
+        return None, b""
+
+    opcode = OpCode(header[0])
+    payload_length = int.from_bytes(header[OP_CODE_SIZE:HEADER_SIZE], byteorder="big")
+
+    payload = b""
+    if payload_length > 0:
+        payload = safe_socket.recv_all(sock, payload_length)
+
+    return opcode, payload
+
+
+def serialize_bet(bet: Bet) -> bytes:
+    name_bytes = bet.first_name.encode("utf-8")
+    last_bytes = bet.last_name.encode("utf-8")
+    birth_bytes = bet.birthdate.encode("utf-8")  # 10 bytes
+
+    data = bytearray()
+    data.extend(bet.agency_id.to_bytes(AGENCY_SIZE, byteorder="big"))
+    data.append(len(name_bytes))
+    data.extend(name_bytes)
+    data.append(len(last_bytes))
+    data.extend(last_bytes)
+    data.extend(bet.document.to_bytes(USER_ID_SIZE, byteorder="big"))
+    data.extend(birth_bytes)
+    data.extend(bet.number.to_bytes(CODE_SIZE, byteorder="big"))
+
+    return bytes(data)
+
+
+def deserialize_bet(data: bytes, offset: int) -> Tuple[Bet, int]:
+    # Returns bet and new offset
+    agency_id = int.from_bytes(data[offset : offset + AGENCY_SIZE], byteorder="big")
+    offset += AGENCY_SIZE
+
+    name_len = data[offset]
+    offset += NAME_LEN_SIZE
+    first_name = data[offset : offset + name_len].decode("utf-8")
+    offset += name_len
+
+    last_len = data[offset]
+    offset += LAST_LEN_SIZE
+    last_name = data[offset : offset + last_len].decode("utf-8")
+    offset += last_len
+
+    document = int.from_bytes(data[offset : offset + USER_ID_SIZE], byteorder="big")
+    offset += USER_ID_SIZE
+
+    birthdate = data[offset : offset + BIRTH_DATE_SIZE].decode("utf-8")
+    offset += BIRTH_DATE_SIZE
+
+    number = int.from_bytes(data[offset : offset + CODE_SIZE], byteorder="big")
+    offset += CODE_SIZE
+
+    bet = Bet(
+        agency_id=agency_id,
+        first_name=first_name,
+        last_name=last_name,
+        document=document,
+        birthdate=birthdate,
+        number=number,
+    )
+
+    return bet, offset
+
+
+@dataclass
+class Batch:
+    agency_id: int
+    bets: List[Bet]
+
+
+def deserialize_batch(payload: bytes) -> Batch:
+    bets = []
+    offset = 0
+    agency_id = None
+    while offset < len(payload):
+        bet, offset = deserialize_bet(payload, offset)
+        if agency_id is None:
+            agency_id = bet.agency_id
+        elif agency_id != bet.agency_id:
+            raise ValueError("All bets in a batch must have the same agency_id")
+        bets.append(bet)
+    
+    if agency_id is None:
+        raise ValueError("Batch cannot be empty")
+
+    return Batch(agency_id=agency_id, bets=bets)
+
+
+def serialize_batch(batch: Batch) -> bytes:
+    batch_payload = bytearray()
+    for bet in batch.bets:
+        batch_payload.extend(serialize_bet(bet))
+    return bytes(batch_payload)

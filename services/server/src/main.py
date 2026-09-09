@@ -4,13 +4,20 @@ import sys
 import logger
 import server
 
-SERVER_HOST = os.environ["SERVER_HOST"]
-SERVER_PORT = int(os.environ["SERVER_PORT"])
-
+SERVER_HOST = os.environ.get("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.environ.get("SERVER_PORT", "12345"))
+STORAGE_PATH = os.environ.get("STORAGE_PATH", "/tmp/bets.csv")
+AGENCY_QUORUM_MIN = int(os.environ.get("AGENCY_QUORUM_MIN", "3"))
 
 def main():
     logger.init()
-    s = server.Server(SERVER_HOST, SERVER_PORT)
+    config = server.ServerConfig(
+        server_host=SERVER_HOST,
+        server_port=SERVER_PORT,
+        storage_path=STORAGE_PATH,
+        agency_quorum_min=AGENCY_QUORUM_MIN
+    )
+    s = server.Server(config)
     try:
         s.run()
     except Exception as e:
