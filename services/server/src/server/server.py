@@ -1,3 +1,4 @@
+import contextlib
 import signal
 import socket
 import threading
@@ -24,13 +25,42 @@ class Server:
         self.server_port = server_port
         self.lottery = Lottery(storage_path)
         self.agency_quorum_min = agency_quorum_min
-        self.file_lock = threading.Lock()
+        self.rw_condition = threading.Condition()
+        self.readers = 0
+        self.writers = 0
         self.socket_lock = threading.Lock()
         self.draw_barrier = threading.Barrier(self.agency_quorum_min)
         self.active_sockets = []
 
         # Register the signal handler
         signal.signal(signal.SIGTERM, self.handle_sigterm)
+
+    @contextlib.contextmanager
+    def _read_lock(self):
+        with self.rw_condition:
+            while self.writers > 0:
+                self.rw_condition.wait()
+            self.readers += 1
+        try:
+            yield
+        finally:
+            with self.rw_condition:
+                self.readers -= 1
+                if self.readers == 0:
+                    self.rw_condition.notify_all()
+
+    @contextlib.contextmanager
+    def _write_lock(self):
+        with self.rw_condition:
+            while self.writers > 0 or self.readers > 0:
+                self.rw_condition.wait()
+            self.writers += 1
+        try:
+            yield
+        finally:
+            with self.rw_condition:
+                self.writers -= 1
+                self.rw_condition.notify_all()
 
     def handle_sigterm(self, signum, frame):
         raise GracefulExit()
@@ -53,7 +83,7 @@ class Server:
                     if bets:
                         agency_id = bets[0].agency_id
 
-                    with self.file_lock:
+                    with self._write_lock():
                         self.lottery.store_bets(bets)
 
                     protocol.send_message(client_socket, protocol.OP_BATCH_ACK, b"")
@@ -66,7 +96,7 @@ class Server:
 
                     winners = []
                     # Find winners specifically for this agency
-                    with self.file_lock:
+                    with self._read_lock():
                         for bet in self.lottery.load_bets():
                             if bet.agency_id == agency_id and self.lottery.has_won(bet):
                                 winners.append(bet)
