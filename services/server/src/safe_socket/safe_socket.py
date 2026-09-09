@@ -13,7 +13,7 @@ def recv_all(sock: socket.socket, size: int) -> bytes:
     return b"".join(chunks)
 
 
-def send_all(sock: socket.socket, data: bytes):
+def send_all(sock: socket.socket, data: bytes) -> None:
     total_sent = 0
     while total_sent < len(data):
         sent = sock.send(data[total_sent:])

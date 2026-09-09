@@ -1,13 +1,16 @@
-from typing import List, Tuple
+import socket
+from enum import IntEnum
+from typing import List, Optional, Tuple
 
 import safe_socket
 from lottery.bet import Bet
 
-# Protocol Operation Types
-OP_BATCH = 0x01
-OP_BATCH_ACK = 0x02
-OP_END = 0x03
-OP_WINNERS = 0x04
+class OpCode(IntEnum):
+    BATCH = 0x01
+    BATCH_ACK = 0x02
+    END = 0x03
+    WINNERS = 0x04
+
 # Protocol Parameter Sizes
 HEADER_SIZE = 5
 OP_CODE_SIZE = 1
@@ -20,26 +23,26 @@ BIRTH_DATE_SIZE = 10
 CODE_SIZE = 4
 
 
-def send_message(socket, opcode: int, payload: bytes):
+def send_message(sock: socket.socket, opcode: OpCode, payload: bytes) -> None:
     header = bytearray(HEADER_SIZE)
     header[0] = opcode
     header[OP_CODE_SIZE:] = len(payload).to_bytes(PAYLOAD_SIZE, byteorder="big")
 
     msg = header + payload
-    safe_socket.send_all(socket, msg)
+    safe_socket.send_all(sock, msg)
 
 
-def recv_message(socket) -> Tuple[int, bytes]:
-    header = safe_socket.recv_all(socket, HEADER_SIZE)
+def recv_message(sock: socket.socket) -> Tuple[Optional[OpCode], bytes]:
+    header = safe_socket.recv_all(sock, HEADER_SIZE)
     if not header:
-        return 0, b""
+        return None, b""
 
-    opcode = header[0]
+    opcode = OpCode(header[0])
     length = int.from_bytes(header[OP_CODE_SIZE:HEADER_SIZE], byteorder="big")
 
     payload = b""
     if length > 0:
-        payload = safe_socket.recv_all(socket, length)
+        payload = safe_socket.recv_all(sock, length)
 
     return opcode, payload
 

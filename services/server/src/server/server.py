@@ -2,6 +2,7 @@ import signal
 import socket
 import threading
 from dataclasses import dataclass
+from typing import Any, List
 
 import logger
 import utils.rwlock
@@ -34,15 +35,15 @@ class Server:
         self.rwlock = utils.rwlock.RWLock()
         self.socket_lock = threading.Lock()
         self.draw_barrier = threading.Barrier(self.agency_quorum_min)
-        self.active_sockets = []
+        self.active_sockets: List[socket.socket] = []
 
         # Register the signal handler
         signal.signal(signal.SIGTERM, self.handle_sigterm)
 
-    def handle_sigterm(self, signum, frame):
+    def handle_sigterm(self, signum: int, frame: Any) -> None:
         raise GracefulExit()
 
-    def _handle_client(self, client_socket):
+    def _handle_client(self, client_socket: socket.socket) -> None:
         with self.socket_lock:
             self.active_sockets.append(client_socket)
         action = "handle-client"
@@ -55,7 +56,7 @@ class Server:
                 if not opcode:
                     break
 
-                if opcode == protocol.OP_BATCH:
+                if opcode == protocol.OpCode.BATCH:
                     bets = protocol.deserialize_batch(payload)
                     if bets:
                         agency_id = bets[0].agency_id
@@ -63,9 +64,9 @@ class Server:
                     with self.rwlock.write_lock():
                         self.lottery.store_bets(bets)
 
-                    protocol.send_message(client_socket, protocol.OP_BATCH_ACK, b"")
+                    protocol.send_message(client_socket, protocol.OpCode.BATCH_ACK, b"")
 
-                elif opcode == protocol.OP_END:
+                elif opcode == protocol.OpCode.END:
                     try:
                         self.draw_barrier.wait()
                     except threading.BrokenBarrierError:
@@ -82,7 +83,7 @@ class Server:
                     winners_payload = protocol.serialize_winners(winners)
 
                     protocol.send_message(
-                        client_socket, protocol.OP_WINNERS, winners_payload
+                        client_socket, protocol.OpCode.WINNERS, winners_payload
                     )
                     break
 
@@ -95,9 +96,9 @@ class Server:
                 if client_socket in self.active_sockets:
                     self.active_sockets.remove(client_socket)
 
-    def run(self):
+    def run(self) -> None:
         action = "accept-connection"
-        threads = []
+        threads: List[threading.Thread] = []
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind((self.server_host, self.server_port))
