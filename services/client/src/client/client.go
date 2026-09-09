@@ -9,6 +9,7 @@ import (
 	"time"
 	"bufio"
 	"fmt"
+	"strconv"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 )
 
@@ -121,7 +122,9 @@ func (client *Client) processBetsFile(action string) error {
 	defer inputFile.Close()
 
 	scanner := bufio.NewScanner(inputFile)
-	var batchBuffer [][]byte
+	
+	expectedAgencyID, _ := strconv.ParseUint(client.config.AgencyId, 10, 32)
+	batch := &Batch{AgencyID: uint32(expectedAgencyID)}
 	
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,12 +134,13 @@ func (client *Client) processBetsFile(action string) error {
 			continue
 		}
 		
-		batchBuffer = append(batchBuffer, SerializeBet(bet))
+		batch.Bets = append(batch.Bets, bet)
 		
-		if len(batchBuffer) >= client.config.BatchSize {
-			if err := client.flushBatch(&batchBuffer, action); err != nil {
+		if len(batch.Bets) >= client.config.BatchSize {
+			if err := client.flushBatch(batch, action); err != nil {
 				return err
 			}
+			batch.Bets = nil
 		}
 	}
 
@@ -145,20 +149,17 @@ func (client *Client) processBetsFile(action string) error {
 		return err
 	}
 	
-	return client.flushBatch(&batchBuffer, action)
+	return client.flushBatch(batch, action)
 }
 
-func (client *Client) flushBatch(batchBuffer *[][]byte, action string) error {
-	if len(*batchBuffer) == 0 {
+func (client *Client) flushBatch(batch *Batch, action string) error {
+	if len(batch.Bets) == 0 {
 		return nil
 	}
 	
-	var payload []byte
-	for _, b := range *batchBuffer {
-		payload = append(payload, b...)
-	}
+	payload := SerializeBatch(batch)
 	
-	logger.Info(action, logger.InProgress, "agency-id", client.config.AgencyId, "sending-batch", len(*batchBuffer))
+	logger.Info(action, logger.InProgress, "agency-id", client.config.AgencyId, "sending-batch", len(batch.Bets))
 	
 	if err := SendMessage(client.conn, OpBatch, payload); err != nil {
 		return err
@@ -171,7 +172,6 @@ func (client *Client) flushBatch(batchBuffer *[][]byte, action string) error {
 	
 	switch opcode {
 	case OpBatchAck:
-		*batchBuffer = nil
 		return nil
 	default:
 		return fmt.Errorf("unexpected opcode %d, expected OpBatchAck", opcode)
@@ -193,8 +193,17 @@ func (client *Client) receiveAndSaveWinners() error {
 	
 	switch opcode {
 	case OpWinners:
-		bets := DeserializeBatch(payload)
-		for _, bet := range bets {
+		batch, err := DeserializeBatch(payload)
+		if err != nil {
+			return err
+		}
+		
+		expectedAgencyID, _ := strconv.ParseUint(client.config.AgencyId, 10, 32)
+		if len(batch.Bets) > 0 && batch.AgencyID != uint32(expectedAgencyID) {
+			return fmt.Errorf("received winners batch for different agency: %d", batch.AgencyID)
+		}
+		
+		for _, bet := range batch.Bets {
 			if _, err := outputFile.WriteString(bet.ToCSV() + "\n"); err != nil {
 				return err
 			}

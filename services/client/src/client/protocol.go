@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
@@ -120,19 +121,41 @@ func DeserializeBet(data []byte) (*Bet, int) {
 	}, offset
 }
 
+type Batch struct {
+	AgencyID uint32
+	Bets     []*Bet
+}
+
 // DeserializeBatch parses an array of bets from a single payload block.
-func DeserializeBatch(payload []byte) []*Bet {
+func DeserializeBatch(payload []byte) (*Batch, error) {
 	var bets []*Bet
 	offset := 0
+	var agencyID uint32
+	var hasAgencyID bool
 	for offset < len(payload) {
 		bet, read := DeserializeBet(payload[offset:])
 		if read == 0 {
 			break
 		}
+		if !hasAgencyID {
+			agencyID = bet.AgencyID
+			hasAgencyID = true
+		} else if agencyID != bet.AgencyID {
+			return nil, fmt.Errorf("batch contains bets from different agencies")
+		}
 		offset += read
 		bets = append(bets, bet)
 	}
-	return bets
+	return &Batch{AgencyID: agencyID, Bets: bets}, nil
+}
+
+// SerializeBatch serializes a batch of bets.
+func SerializeBatch(batch *Batch) []byte {
+	var payload []byte
+	for _, bet := range batch.Bets {
+		payload = append(payload, SerializeBet(bet)...)
+	}
+	return payload
 }
 
 func SendMessage(conn io.Writer, opcode OpCode, payload []byte) error {
