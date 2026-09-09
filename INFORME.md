@@ -91,6 +91,28 @@ Todos los mensajes intercambiados poseen una cabecera fija de 5 bytes:
 2. **Longitud (4 bytes - Big Endian):** Indica el tamaño exacto del Payload (puede ser 0).
 3. **Payload (N bytes):** Contenido del mensaje, procesado secuencialmente según el Opcode.
 
+#### Diagrama de Lote (Batch)
+Este diagrama refleja la estructura de un paquete completo enviado con el Opcode `0x01` (Batch):
+
+```mermaid
+graph LR
+    subgraph Batch Packet
+        direction LR
+        Header[Header<br/>OpCode=0x01<br/>5 bytes] --- Bet1[Apuesta 1] --- Bet2[Apuesta 2] --- Dots[...] --- BetN[Apuesta N]
+    end
+```
+
+#### Diagrama de Apuesta (Bet)
+Este diagrama refleja la estructura interna (Payload) de cada apuesta individual, la cual es de tamaño variable dependiendo de la longitud de los nombres:
+
+```mermaid
+graph LR
+    subgraph Bet Structure
+        direction LR
+        Agency[Agency ID<br/>4 bytes] --- NLen[Name Len<br/>1 byte] --- Name[First Name<br/>N bytes] --- LLen[Last Len<br/>1 byte] --- Last[Last Name<br/>M bytes] --- Doc[Document<br/>4 bytes] --- DOB[Birth Date<br/>10 bytes] --- Num[Number<br/>4 bytes]
+    end
+```
+
 ### Decisiones de Diseño y Alternativas Consideradas
 
 * **Serialización Binaria vs. Texto (CSV):** 
