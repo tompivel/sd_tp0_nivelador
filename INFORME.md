@@ -17,15 +17,15 @@ graph TD
         Main -->|Spawn| T2
         Main -->|Spawn| TN
         
-        Lock((File Lock))
+        RWLock((RWLock))
         Barrier((Draw Barrier))
         Storage[(Lottery CSV Storage)]
         
-        T1 --> Lock
-        T2 --> Lock
-        TN --> Lock
+        T1 -->|Read / Write| RWLock
+        T2 -->|Read / Write| RWLock
+        TN -->|Read / Write| RWLock
         
-        Lock --> Storage
+        RWLock --> Storage
         
         T1 --> Barrier
         T2 --> Barrier
@@ -68,7 +68,7 @@ sequenceDiagram
     C->>S: Establece conexión TCP
     loop Mientras haya apuestas
         C->>S: 0x01 (OP_BATCH) + Payload
-        Note right of S: Adquiere File Lock<br/>Almacena apuestas<br/>Libera File Lock
+        Note right of S: Adquiere Write Lock<br/>Almacena apuestas<br/>Libera Write Lock
         S-->>C: 0x02 (OP_BATCH_ACK)
     end
     C->>S: 0x03 (OP_END)
@@ -115,8 +115,14 @@ Para manejar el procesamiento concurrente de las conexiones y el cálculo del so
   * *Decisión:* Se utilizó un modelo clásico de **Multithreading con estado compartido**, lanzando un hilo por conexión (`threading.Thread`).
   * *Razón:* Si bien el modelo de colas y coordinador es excelente y libre de locks explícitos en los archivos, introducía una gran complejidad arquitectónica y requería reescribir buena parte del flujo de datos del servidor. El modelo clásico resultó mucho más simple de implementar y encajaba mejor con la estructura secuencial base, requiriendo agregar únicamente dos primitivas de sincronización.
 
-* **Protección del Almacenamiento (Race Conditions):**
-  * Puesto que la clase de dominio `Lottery` (la cual no podíamos modificar) lee y escribe sobre un mismo archivo CSV, se instanció un único `threading.Lock` global. Este Lock **envuelve las llamadas** a `store_bets` y `load_bets` por parte de los hilos clientes, garantizando acceso mutuamente exclusivo a la E/S y previniendo archivos corruptos o lecturas sucias por condiciones de carrera.
+* **Protección del Almacenamiento y Concurrencia de Lectura (RWLock):**
+  * Puesto que la clase de dominio `Lottery` (la cual no podíamos modificar) lee y escribe sobre un mismo archivo CSV, inicialmente se podría haber instanciado un único `threading.Lock` global. Sin embargo, para evitar serializar injustificadamente las lecturas, se implementó un mecanismo de **Readers-Writer Lock (RWLock)** personalizado mediante el uso de `threading.Condition`.
+  * Este RWLock envuelve las llamadas a `store_bets` (adquiriendo acceso exclusivo de escritura) y a `load_bets` (adquiriendo acceso compartido de lectura) por parte de los hilos clientes. Esto garantiza que las escrituras no corrompan el archivo, pero permite que, una vez superada la barrera de sincronización, todas las agencias puedan leer el archivo de ganadores de forma estrictamente simultánea.
+
+* **Multiprocessing vs Multithreading (I/O-Bound vs CPU-Bound):**
+  * *Alternativa Considerada:* Utilizar múltiples procesos (vía el módulo `multiprocessing`) para aislar los manejadores y evadir por completo el GIL logrando paralelismo real.
+  * *Decisión:* Se optó por utilizar **Multithreading**.
+  * *Razón:* Si bien Python implementa un GIL que restringe la ejecución paralela de múltiples hilos de bytecode en la CPU, el sistema de este TP se encuentra fuertemente limitado por la red y el disco (**I/O-bound**). En CPython, las operaciones bloqueantes de Entrada/Salida (como recepciones en *sockets* o manipular el archivo `CSV`) **liberan explícitamente el GIL** antes de realizar la llamada al Sistema Operativo. Por lo tanto, el uso de *multithreading* permite lograr una alta concurrencia; los hilos esperan de manera pasiva y simultánea sus respuestas sin asfixiar al intérprete. Emplear procesos habría introducido un altísimo costo de memoria (clonando el entorno Python por cada cliente) y complejidad mediante mecanismos IPC en un escenario donde el paralelismo en CPU no aporta un beneficio sustancial real (ausencia de tareas pesadas de cómputo).
 
 * **Sincronización del Quórum (threading.Barrier):**
   * Para satisfacer el requerimiento de esperar a que un mínimo de agencias notifiquen su fin de transmisión (`OP_END`), se utilizó la primitiva `threading.Barrier(AGENCY_QUORUM_MIN)`.
