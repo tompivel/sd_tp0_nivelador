@@ -7,12 +7,15 @@ import (
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
+type OpCode byte
+
 const (
 	// Protocol Operation Types
-	OpBatch   = 0x01
-	OpBatchAck = 0x02
-	OpEnd     = 0x03
-	OpWinners = 0x04
+	OpBatch    OpCode = 0x01
+	OpBatchAck OpCode = 0x02
+	OpEnd      OpCode = 0x03
+	OpWinners  OpCode = 0x04
+	
 	// Protocol Parameter Sizes
 	HEADER_SIZE = 5
 	OP_CODE_SIZE = 1
@@ -132,9 +135,9 @@ func DeserializeBatch(payload []byte) []*Bet {
 	return bets
 }
 
-func SendMessage(conn io.Writer, opcode byte, payload []byte) error {
+func SendMessage(conn io.Writer, opcode OpCode, payload []byte) error {
 	msg := make([]byte, HEADER_SIZE +len(payload))
-	msg[0] = opcode
+	msg[0] = byte(opcode)
 	binary.BigEndian.PutUint32(msg[OP_CODE_SIZE:HEADER_SIZE], uint32(len(payload)))
 	
 	if len(payload) > 0 {
@@ -144,13 +147,13 @@ func SendMessage(conn io.Writer, opcode byte, payload []byte) error {
 	return safe_socket.SendAll(conn, msg)
 }
 
-func RecvMessage(conn io.Reader) (byte, []byte, error) {
+func RecvMessage(conn io.Reader) (OpCode, []byte, error) {
 	header, err := safe_socket.RecvAll(conn, HEADER_SIZE)
 	if err != nil {
 		return 0, nil, err
 	}
 	
-	opcode := header[0]
+	opcode := OpCode(header[0])
 	length := binary.BigEndian.Uint32(header[OP_CODE_SIZE:])
 	
 	var payload []byte
