@@ -1,4 +1,5 @@
 import socket
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import List, Optional, Tuple
 
@@ -103,17 +104,32 @@ def deserialize_bet(data: bytes, offset: int) -> Tuple[Bet, int]:
     return bet, offset
 
 
-def deserialize_batch(payload: bytes) -> List[Bet]:
+@dataclass
+class Batch:
+    agency_id: int
+    bets: List[Bet]
+
+
+def deserialize_batch(payload: bytes) -> Batch:
     bets = []
     offset = 0
+    agency_id = None
     while offset < len(payload):
         bet, offset = deserialize_bet(payload, offset)
+        if agency_id is None:
+            agency_id = bet.agency_id
+        elif agency_id != bet.agency_id:
+            raise ValueError("All bets in a batch must have the same agency_id")
         bets.append(bet)
-    return bets
+    
+    if agency_id is None:
+        raise ValueError("Batch cannot be empty")
+
+    return Batch(agency_id=agency_id, bets=bets)
 
 
-def serialize_winners(winners: List[Bet]) -> bytes:
-    winners_payload = bytearray()
-    for winner in winners:
-        winners_payload.extend(serialize_bet(winner))
-    return bytes(winners_payload)
+def serialize_batch(batch: Batch) -> bytes:
+    batch_payload = bytearray()
+    for bet in batch.bets:
+        batch_payload.extend(serialize_bet(bet))
+    return bytes(batch_payload)

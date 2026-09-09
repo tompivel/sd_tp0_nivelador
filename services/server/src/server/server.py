@@ -44,12 +44,15 @@ class Server:
         raise GracefulExit()
 
     def _handle_batch(self, client_socket: socket.socket, payload: bytes, agency_id: Optional[int]) -> Optional[int]:
-        bets = protocol.deserialize_batch(payload)
-        if bets and agency_id is None:
-            agency_id = bets[0].agency_id
+        batch = protocol.deserialize_batch(payload)
+        
+        if agency_id is None:
+            agency_id = batch.agency_id
+        elif agency_id != batch.agency_id:
+            raise ValueError("Agency ID changed during session")
 
         with self.rwlock.write_lock():
-            self.lottery.store_bets(bets)
+            self.lottery.store_bets(batch.bets)
 
         protocol.send_message(client_socket, protocol.OpCode.BATCH_ACK, b"")
         return agency_id
@@ -68,7 +71,8 @@ class Server:
                     winners.append(bet)
 
         # Serialize winners
-        winners_payload = protocol.serialize_winners(winners)
+        winners_batch = protocol.Batch(agency_id=agency_id, bets=winners)
+        winners_payload = protocol.serialize_batch(winners_batch)
 
         protocol.send_message(
             client_socket, protocol.OpCode.WINNERS, winners_payload
